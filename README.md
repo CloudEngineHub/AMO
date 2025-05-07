@@ -21,7 +21,7 @@
 <h3 align="center"> RSS 2025 </h3>
 
 <p align="center">
-<h3 align="center"><a href="https://amo-humanoid.github.io/">Website</a> | <a href="https://arxiv.org/abs/2407.01512/">arXiv</a> | <a href="">Video</a> | <a href="">Summary</a> </h3>
+<h3 align="center"><a href="https://amo-humanoid.github.io/">Website</a> | <a href="https://arxiv.org/abs/2505.03738/">arXiv</a> | <a href="">Video</a> | <a href="">Summary</a> </h3>
   <div align="center"></div>
 </p>
 
