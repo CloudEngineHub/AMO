@@ -70,7 +70,7 @@ Press **A** (+) and **D** (-) to control yaw
 
 <img src="./img/yaw.webp" width="50%"/>
 
-You can experiment with different command combinations, including out-of-distribution (O.O.D.) ones, all using the same model. You can even include arm motions on top of it!
+You can experiment with different command combinations, including out-of-distribution (O.O.D.) ones, all using the same model. You can even include arm motions on top of it! (Press **T** to toggle arm actions)
 
 <img src="./img/full.webp" width="50%"/>
 

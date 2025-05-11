@@ -49,6 +49,8 @@ def quatToEuler(quat):
     return eulerVec
 
 def _key_callback(self, window, key, scancode, action, mods):
+    if action != glfw.PRESS:
+        return
     if key == glfw.KEY_S:
         self.commands[0] -= 0.05
     elif key == glfw.KEY_W:
@@ -76,7 +78,13 @@ def _key_callback(self, window, key, scancode, action, mods):
     elif key == glfw.KEY_L:
         self.commands[6] += 0.05
     elif key == glfw.KEY_O:
-        self.commands[6] -= 0.05
+        self.commands[6] -= 0.1
+    elif key == glfw.KEY_T:
+        self.commands[7] = not self.commands[7]
+        if self.commands[7]:
+            print("Toggled arm control ON")
+        else:
+            print("Toggled arm control OFF")
     elif key == glfw.KEY_ESCAPE:
         print("Pressed ESC")
         print("Quitting.")
@@ -129,6 +137,8 @@ class HumanoidEnv:
                 25, 25, 25, 25,
                 25, 25, 25, 25,
             ])
+            self.arm_dof_lower_range = -0.4 * np.ones(8)
+            self.arm_dof_upper_range = 0.4* np.ones(8)
             self.dof_names = ["left_hip_pitch", "left_hip_roll", "left_hip_yaw", "left_knee", "left_ankle_pitch", "left_ankle_roll",
                               "right_hip_pitch", "right_hip_roll", "right_hip_yaw", "right_knee", "right_ankle_pitch", "right_ankle_roll",
                               "waist_yaw", "waist_roll", "waist_pitch",
@@ -151,7 +161,7 @@ class HumanoidEnv:
         mujoco.mj_resetDataKeyframe(self.model, self.data, 0)
         mujoco.mj_step(self.model, self.data)
         self.viewer = mujoco_viewer.MujocoViewer(self.model, self.data)
-        self.viewer.commands = np.zeros(7, dtype=np.float32)
+        self.viewer.commands = np.zeros(8, dtype=np.float32)
         self.viewer.cam.distance = 2.5 # 5.0
         self.viewer.cam.elevation = 0.0
         self.viewer._key_callback = types.MethodType(_key_callback, self.viewer)
@@ -159,6 +169,10 @@ class HumanoidEnv:
         
         self.last_action = np.zeros(self.num_actions, dtype=np.float32)
         self.action_scale = 0.25
+        self.arm_action = self.default_dof_pos[15:]
+        self.prev_arm_action = self.default_dof_pos[15:]
+        self.arm_blend = 0.0
+        self.toggle_arm = False
 
         self.scales_ang_vel = 0.25
         self.scales_dof_vel = 0.05
@@ -229,7 +243,7 @@ class HumanoidEnv:
 
         gait_obs = np.sin(self.gait_cycle * 2 * np.pi)
 
-        self.adapter_input = np.concatenate([np.zeros(4), self.default_dof_pos[15:]])
+        self.adapter_input = np.concatenate([np.zeros(4), self.dof_pos[15:]])
 
         self.adapter_input[0] = 0.75 + self.viewer.commands[3]
         self.adapter_input[1] = self.viewer.commands[4]
@@ -258,6 +272,7 @@ class HumanoidEnv:
         obs_hist = np.array(self.proprio_history_buf).flatten()
 
         obs_demo = self.demo_obs_template.copy()
+        obs_demo[:self._n_demo_dof] = self.dof_pos[15:]
         obs_demo[self._n_demo_dof] = self.viewer.commands[0]
         obs_demo[self._n_demo_dof+1] = self.viewer.commands[2]
         self._in_place_stand_flag = np.abs(self.viewer.commands[0]) < 0.1
@@ -285,10 +300,24 @@ class HumanoidEnv:
                     raw_action = self.policy_jit(obs_tensor, extra_hist).cpu().numpy().squeeze()
                 
                 raw_action = np.clip(raw_action, -40., 40.)
-                self.last_action = np.concatenate([raw_action.copy(), np.zeros(8)])
+                self.last_action = np.concatenate([raw_action.copy(), (self.dof_pos - self.default_dof_pos)[15:] / self.action_scale])
                 scaled_actions = raw_action * self.action_scale
                 
+                if i % 300 == 0 and i > 0 and self.viewer.commands[7]:
+                    self.arm_blend = 0
+                    self.prev_arm_action = self.dof_pos[15:].copy()
+                    self.arm_action = np.random.uniform(0, 1, 8) * (self.arm_dof_upper_range - self.arm_dof_lower_range) + self.arm_dof_lower_range
+                    self.toggle_arm = True
+                elif not self.viewer.commands[7]:
+                    if self.toggle_arm:
+                        self.toggle_arm = False
+                        self.arm_blend = 0
+                        self.prev_arm_action = self.dof_pos[15:].copy()
+                        self.arm_action = self.default_dof_pos[15:]
                 pd_target = np.concatenate([scaled_actions, np.zeros(8)]) + self.default_dof_pos
+                pd_target[15:] = (1 - self.arm_blend) * self.prev_arm_action + self.arm_blend * self.arm_action
+                self.arm_blend = min(1.0, self.arm_blend + 0.01)
+                
 
                 self.gait_cycle = np.remainder(self.gait_cycle + self.control_dt * self.gait_freq, 1.0)
                 if self._in_place_stand_flag and ((np.abs(self.gait_cycle[0] - 0.25) < 0.05) or (np.abs(self.gait_cycle[1] - 0.25) < 0.05)):
